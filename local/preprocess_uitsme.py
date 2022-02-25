@@ -18,7 +18,7 @@ for line in get_lines():
     if not line:
         continue
     line = "".join(
-            char if char.isalpha() else " " 
+            char if char.isalnum() else " " 
             for char in line
     )
     # This could process initialisms
@@ -28,6 +28,10 @@ for line in get_lines():
     #        for word in line.split()
     #)
     line = line.lower()
+    line = " ".join(
+            unk_token if any(c.isnumeric() for c in word) else word 
+            for word in line.split()
+    )
     line = " ".join(
             unk_token if any(c in word for c in "wåäöæø") else word 
             for word in line.split()
