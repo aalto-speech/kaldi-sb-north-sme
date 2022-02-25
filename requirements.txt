@@ -1,1 +1,6 @@
 pympi-ling
+webdataset
+speechbrain
+kaldi-io
+more-itertools
+transformers
