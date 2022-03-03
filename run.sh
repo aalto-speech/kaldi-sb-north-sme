@@ -196,3 +196,12 @@ fi
 if [ $stage -le 19 ]; then
   local/chain/run-training.sh
 fi
+
+if [ $stage -le 20 ]; then
+  utils/mkgraph.sh data/lang_bpe.1000.varikn/ exp/chain/graph2/ exp/chain/graph2/graph_bpe.1000.varikn
+fi
+
+if [ $stage -le 21 ]; then
+  local/chain/decode.sh 
+fi
+

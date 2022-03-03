@@ -1,0 +1,12 @@
+#!/usr/bin/env python3
+import sys
+for line in sys.stdin:
+    uttid, *text = line.strip().split()
+    text = "".join(text)
+    if not text:
+        print(uttid)
+        continue
+    if text[0] =="▁":
+        text = text[1:]
+    text = text.replace("▁", " ")
+    print(uttid, text)
