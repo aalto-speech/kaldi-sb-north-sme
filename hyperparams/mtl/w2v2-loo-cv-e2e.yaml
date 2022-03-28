@@ -2,26 +2,28 @@
 seed: 2602
 __set_seed: !apply:torch.manual_seed [!ref <seed>]
 
-trainshards: ./shards/uit-sme-segmented/shard-000{000..001}.tar
+loo_cv_index: !PLACEHOLDER
+trainshards: !ref shards/loo-cv/<loo_cv_index>/train/shard-000000.tar
+#validshards: !ref shards/loo-cv/<loo_cv_index>/valid/shard-000000.tar
 validshards: ./shards/giellagas-valid/shard-000{000..001}.tar
-# data_folder_rirs: ./augmentation_data # noise/ris dataset will automatically be downloaded here
-num_units: 672
-output_folder: !ref exp/chain/sb-mtl-am/wav2vec2-sub2-A/<seed>-<num_units>units
+output_folder: !ref exp/loo-cv/<loo_cv_index>/chain_e2e/sb-mtl-am/wav2vec2-sub2-F/
+data_folder_rirs: ./tmp/sb-rir-data
+num_units: 656
 save_folder: !ref <output_folder>/save
 train_log: !ref <output_folder>/train_log.txt
 w2v2_savepath: ./w2v2_checkpoints
 
 # URL for the biggest Fairseq english wav2vec2 model.
-wav2vec2_hub: facebook/wav2vec2-large-xlsr-53
+wav2vec2_hub: facebook/wav2vec2-large-uralic-voxpopuli-v2 
 
 # FST stuff:
-numfstdir: exp/chain/graph2/uit-sme-segmented/
-numfsttmpdir: /tmp/sb-uit-sme-segmented-fsts-sub2
-valid_numfstdir: exp/chain/graph2/giellagas-valid/
-valid_numfsttmpdir: /tmp/sb-giellagas-valid-fsts-sub2
+numfstdir: !ref exp/loo-cv/<loo_cv_index>/chain_e2e/graph2/train/
+numfsttmpdir: !ref /tmp/sb-loo-cv/<loo_cv_index>/numfsts-train-sub2-e2e
+valid_numfstdir: !ref exp/loo-cv/<loo_cv_index>/chain_e2e/graph2/valid
+valid_numfsttmpdir: !ref /tmp/sb-loo-cv/<loo_cv_index>/numfsts-valid-sub2-e2e
 denominator_graph: !new:pychain.graph.ChainGraph
     fst: !apply:simplefst.StdVectorFst.read
-        - exp/chain/graph2/den.fst
+        - !ref exp/loo-cv/<loo_cv_index>/chain_e2e/graph2/den.fst
     initial_mode: leaky
     final_mode: ones 
 
@@ -36,13 +38,12 @@ stategetter: !new:operator.attrgetter
     - "num_states"
 
 # Multi-task weighting:
-xent_scale: 0.1
 lin_out_name: "lfmmi_lin_out"
 
 # Test files:
 prior_file: !ref <output_folder>/prior.pth
 #test_max_key: "unixtime"
-test_min_key: "loss"
+#test_min_key: "loss"
 #test_wavscp: data/giellagas-test/wav.scp  # TODO: segments
 testdir: data/giellagas-valid/ 
 test_probs_out: !ref <output_folder>/test_probs.ark
@@ -52,7 +53,7 @@ train_logger: !new:speechbrain.utils.train_logger.FileTrainLogger
     save_file: !ref <train_log>
 
 # Training parameters
-number_of_epochs: 100
+number_of_epochs: 50
 nonfinite_patience: 50
 
 # Feature parameters
@@ -112,10 +113,19 @@ dropout: 0.15
 #    norm_type: global
 #
 
+env_corrupt: !new:speechbrain.lobes.augment.EnvCorrupt
+   openrir_folder: !ref <data_folder_rirs>
+   babble_prob: 0.25
+   reverb_prob: 0.25
+   noise_prob: 0.5
+   noise_snr_low: 0
+   noise_snr_high: 15
+
 wav2vec2: !new:speechbrain.lobes.models.huggingface_wav2vec.HuggingFaceWav2Vec2
     source: !ref <wav2vec2_hub>
     output_norm: True
     freeze: !ref <freeze_wav2vec>
+    freeze_feature_extractor: True
     save_path: !ref <w2v2_savepath>
 
 enc: !new:speechbrain.nnet.containers.Sequential
@@ -135,9 +145,6 @@ enc: !new:speechbrain.nnet.containers.Sequential
 
 
 # Linear transformations on the top of the decoder.
-xent_lin_out: !new:speechbrain.nnet.linear.Linear
-    input_size: !ref <dnn_neurons>
-    n_neurons: !ref <num_units>
 lfmmi_lin_out: !new:speechbrain.nnet.linear.Linear
     input_size: !ref <dnn_neurons>
     n_neurons: !ref <num_units>
@@ -151,12 +158,12 @@ log_softmax: !new:speechbrain.nnet.activations.Softmax
 modules:
     wav2vec2: !ref <wav2vec2>
     enc: !ref <enc>
-    xent_lin_out: !ref <xent_lin_out>
     lfmmi_lin_out: !ref <lfmmi_lin_out>
+    env_corrupt: !ref <env_corrupt>
     #normalize: !ref <normalize>
 
 model: !new:torch.nn.ModuleList
-    - [!ref <enc>, !ref <xent_lin_out>, !ref <lfmmi_lin_out>]
+    - [!ref <enc>,  !ref <lfmmi_lin_out>]
 
 model_opt_class: !name:torch.optim.Adadelta
     lr: !ref <lr>
@@ -190,7 +197,6 @@ checkpointer: !new:speechbrain.utils.checkpoints.Checkpointer
     recoverables:
         wav2vec2: !ref <wav2vec2>
         encoder: !ref <enc>
-        xent_lin_out: !ref <xent_lin_out>
         lfmmi_lin_out: !ref <lfmmi_lin_out>
         #normalizer: !ref <normalize>
         scheduler_model: !ref <lr_annealing_model>
@@ -205,5 +211,4 @@ checkpointer: !new:speechbrain.utils.checkpoints.Checkpointer
 #    collect_in: !ref <output_folder>/pretraining_files
 #    loadables:
 #        encoder: !ref <encoder>
-#        lin_out: !ref <xent_lin_out> 
 #        normalizer: !ref <normalize> 

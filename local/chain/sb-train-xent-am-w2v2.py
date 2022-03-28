@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 # Brain class for speech recognition training
-class LFMMIAM(sb.Brain):
+class XENTAM(sb.Brain):
     def compute_forward(self, batch, stage):
         batch = batch.to(self.device)
         wavs, wav_lens = batch.wav
@@ -44,13 +44,11 @@ class LFMMIAM(sb.Brain):
         elif self.hparams.subsampling == 4:
             feats = feats[:,::2,:]
         encoded = self.modules.enc(feats)
-        lfmmi_out = self.modules.lfmmi_lin_out(encoded)
         xent_out = self.modules.xent_lin_out(encoded)
         xent_predictions = self.hparams.log_softmax(xent_out)
-        return lfmmi_out, xent_predictions
+        return xent_predictions
 
     def compute_objectives(self, predictions, batch, stage):
-        graphs = batch.graph
         alis, ali_lens = batch.ali
         wav_lens = batch.wav.lengths
         if stage == sb.Stage.TRAIN and hasattr(self.modules, "env_corrupt"):
@@ -59,24 +57,14 @@ class LFMMIAM(sb.Brain):
             #alis = torch.cat([alis, alis], dim=0)
             #ali_lens = torch.cat([ali_lens, ali_lens])
             #wav_lens = torch.cat([wav_lens, wav_lens])
-        lfmmi_out, xent_predictions = predictions
-        num_transitions = list(map(self.hparams.transgetter, batch.graph))
-        output_lengths = (lfmmi_out.shape[1] * wav_lens).int().cpu()
-        pass
-        max_num_states = max(map(self.hparams.stategetter, batch.graph))
-        numerator_graphs = ChainGraphBatch(
-                graphs,
-                max_num_transitions=max(num_transitions),
-                max_num_states=max_num_states
-        )
-        lfmmi_loss = self.hparams.chain_loss(lfmmi_out, output_lengths, numerator_graphs)
+        xent_predictions = predictions
         xent_loss = sb.nnet.losses.nll_loss(
             log_probabilities=xent_predictions,
             length=ali_lens,
             targets=alis,
             label_smoothing=self.hparams.label_smoothing,
         )
-        loss = (1. - self.hparams.xent_scale ) * lfmmi_loss + self.hparams.xent_scale * xent_loss
+        loss = xent_loss
         if stage != sb.Stage.TRAIN:
             min_length = min(xent_predictions.shape[1], alis.shape[1])
             self.accuracy_metric.append(xent_predictions[:,:min_length,:], alis[:,:min_length], length=ali_lens)
@@ -186,23 +174,27 @@ class LFMMIAM(sb.Brain):
             self.hparams.model.load_state_dict(model_state_dict)
             self.checkpointer.save_checkpoint(name=f"AVERAGED-{self.hparams.avg_ckpts}")
 
-def numfsts_to_local_tmp(fstdir, tmpdir):
-    """Copies the chain numerator FSTs onto a local disk"""
-    fstdir = pathlib.Path(fstdir)
-    tmpdir = pathlib.Path(tmpdir)
-    tmpdir.mkdir(parents=True, exist_ok=True)
-    sb.utils.superpowers.run_shell(f"rsync --update {fstdir}/num.*.ark {tmpdir}/")
-    numfsts = {}
-    for scpfile in fstdir.glob("num.*.scp"):
-        with open(scpfile) as fin:
-            for line in fin:
-                uttid, data = line.strip().split()
-                arkpath, offset = data.split(":")
-                newpath = arkpath.replace(str(fstdir), str(tmpdir))
-                numfsts[uttid] = (newpath, int(offset))
-    return numfsts
+    def estimate_prior_empirical(self, train_data, loader_kwargs={}, max_key=None, min_key=None):
+        self.on_evaluate_start(max_key=max_key, min_key=min_key)
+        self.hparams.train_logger.log_stats(
+            stats_meta={"Epoch loaded for prior": self.hparams.epoch_counter.current},
+        )
+        dataloader = self.make_dataloader(train_data, **loader_kwargs, stage=sb.Stage.TEST)
+        with torch.no_grad():
+            prior_floor = 1.0e-15
+            prior = torch.ones((self.hparams.num_units,)) * prior_floor
+            for batch in tqdm.tqdm(dataloader):
+                log_predictions = self.compute_forward(batch, stage=sb.Stage.TEST)
+                predictions = log_predictions.exp()
+                lengths = batch.wav.lengths*predictions.shape[1]
+                mask = sb.dataio.dataio.length_to_mask(lengths).float()
+                summed_preds = torch.sum(predictions * mask.unsqueeze(-1), dim=(0,1))
+                prior += summed_preds.detach().cpu()
+            # Normalize:
+            prior = prior / prior.sum()
+        return prior.log()
 
-def dataio_prepare(hparams, numfsts):
+def dataio_prepare(hparams):
     """This function prepares the datasets to be used in the brain class.
     It also defines the data processing pipeline through user-defined functions.
 
@@ -219,31 +211,10 @@ def dataio_prepare(hparams, numfsts):
         Dictionary containing "train", "valid", and "test" keys mapping to 
         WebDataset datasets dataloaders for them.
     """
-    TRAIN_FSTS = {}
-    # READ train fsts to mem:
-    if getattr(hparams, "train_fsts_in_mem", False):
-        for uttid, (fstpath, offset) in numfsts["train"].items():
-            TRAIN_FSTS[uttid] = ChainGraph(simplefst.StdVectorFst.read_ark(fstpath, offset), log_domain=True)
-    def load_train_fst(sample):
-        uttid = sample["__key__"]
-        if uttid in TRAIN_FSTS:
-            sample["graph"] = TRAIN_FSTS[uttid] 
-        else:
-            fstpath, offset = numfsts["train"][uttid]
-            sample["graph"] = ChainGraph(simplefst.StdVectorFst.read_ark(fstpath, offset), log_domain=True)
-        return sample
-
-    def load_valid_fst(sample):
-        uttid = sample["__key__"]
-        fstpath, offset = numfsts["valid"][uttid]
-        sample["graph"] = ChainGraph(simplefst.StdVectorFst.read_ark(fstpath, offset), log_domain=True)
-        return sample
-
     traindata = (
             wds.WebDataset(hparams["trainshards"])
             .decode()
             .rename(wav="audio.pth", ali="ali.pth")
-            .map(load_train_fst, handler=wds.warn_and_continue)
             .repeat()
             .then(
                 sb.dataio.iterators.dynamic_bucketed_batch,
@@ -254,7 +225,6 @@ def dataio_prepare(hparams, numfsts):
             wds.WebDataset(hparams["validshards"])
             .decode()
             .rename(wav="audio.pth", ali="ali.pth")
-            .map(load_valid_fst, handler=wds.warn_and_continue)
             .then(
                 sb.dataio.iterators.dynamic_bucketed_batch,
                 drop_end=False,
@@ -282,18 +252,8 @@ if __name__ == "__main__":
         overrides=overrides,
     )
 
-    # Copy numerator FSTs to local drive:
-    numfsts = {}
-    numfsts["train"] = numfsts_to_local_tmp(hparams["numfstdir"], hparams["numfsttmpdir"])
-    numfsts["valid"] = numfsts_to_local_tmp(hparams["valid_numfstdir"], hparams["valid_numfsttmpdir"])
-
     # We can now directly create the datasets for training, valid, and test
-    datasets = dataio_prepare(hparams, numfsts)
-    # read valid data into memory:
-    datasets["valid"] = torch.utils.data.DataLoader(
-            list(iter(datasets["valid"])),
-            batch_size=None
-    )
+    datasets = dataio_prepare(hparams)
 
     # Pretrain if defined:
     if "pretrainer" in hparams:
@@ -307,7 +267,7 @@ if __name__ == "__main__":
         hparams["pretrainer"].load_collected()
 
     # Trainer initialization
-    asr_brain = LFMMIAM(
+    asr_brain = XENTAM(
         modules=hparams["modules"],
         hparams=hparams,
         run_opts=run_opts,
@@ -322,5 +282,11 @@ if __name__ == "__main__":
         asr_brain.hparams.epoch_counter,
         datasets["train"],
         datasets["valid"],
-       train_loader_kwargs = hparams["train_loader_kwargs"]
+        train_loader_kwargs = hparams["train_loader_kwargs"]
     )
+    prior = asr_brain.estimate_prior_empirical(
+            datasets["train"], 
+            loader_kwargs=hparams["prior_loader_kwargs"],
+            min_key=hparams["test_min_key"]
+    )
+    torch.save(prior, hparams["prior_file"])

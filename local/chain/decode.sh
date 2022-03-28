@@ -5,9 +5,9 @@ am_cmd="srun --gres=gpu:1 --constraint=volta --time 1:0:0 --mem 32G -p dgx-commo
 decode_cmd="slurm.pl --mem 12G --time 4:0:0"
 score_cmd="slurm.pl --mem 2G --time 0:30:0"
 nj=2
-hparams="hyperparams/mtl/w2v2-A.yaml"
+hparams="hyperparams/mtl/w2v2-C.yaml"
 datadir="data/giellagas-valid/"
-decodedir="exp/chain/sb-mtl-am/wav2vec2-sub2-A/2602-672units/decode-giellagas-valid"
+decodedir="exp/chain/sb-mtl-am/wav2vec2-sub2-C/2602-656units/decode-giellagas-valid"
 tree="exp/chain/tree2"
 graphdir="exp/chain/graph2/graph_bpe.1000.varikn/"
 py_script="local/chain/sb-test-mtl-am-w2v2.py"
@@ -31,8 +31,9 @@ posteriors_prefix="$decodedir/logprobs"
 mkdir -p $decodedir
 
 if [ $stage -le 1 ]; then
+  num_units=$(tree-info "$tree"/tree | grep "num-pdfs" | cut -d" " -f2)
   test_in="--testdir $datadir"
-  $am_cmd python $py_script $hparams \
+  $am_cmd python $py_script $hparams --num_units $num_units \
     $test_in \
     --test_probs_out "$posteriors_prefix".from_sb
   # Make SCPs:

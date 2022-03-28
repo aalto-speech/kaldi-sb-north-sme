@@ -113,38 +113,38 @@ fi
 ################################################################################
 
 if [ $stage -le 9 ]; then
-  steps/make_mfcc.sh --cmd "$train_cmd" --nj 2 data/uit-sme-segmented
-  steps/compute_cmvn_stats.sh data/uit-sme-segmented
+  steps/make_mfcc.sh --cmd "$train_cmd" --nj 2 data/uit-sme-segmented-and-giellagas-train/
+  steps/compute_cmvn_stats.sh data/uit-sme-segmented-and-giellagas-train
 fi
 
 if [ $stage -le 10 ]; then
   steps/train_mono.sh --nj 2 --cmd "$train_cmd" \
-    data/uit-sme-segmented data/lang_train/ exp/uit-sme-segmented/mono1a || exit 1;
+    data/uit-sme-segmented-and-giellagas-train data/lang_train/ exp/uit-sme-segmented-and-giellagas-train/mono1a || exit 1;
 fi
 
 if [ $stage -le 11 ]; then
   steps/align_si.sh --nj 2 --cmd "$train_cmd" \
-    data/uit-sme-segmented data/lang_train exp/uit-sme-segmented/mono1a exp/uit-sme-segmented/mono1a_ali_uit-sme-segmented || exit 1;
+    data/uit-sme-segmented-and-giellagas-train data/lang_train exp/uit-sme-segmented-and-giellagas-train/mono1a exp/uit-sme-segmented-and-giellagas-train/mono1a_ali_uit-sme-segmented-and-giellagas-train || exit 1;
 
   steps/train_deltas.sh --cmd "$train_cmd" 1200 5000 \
-    data/uit-sme-segmented data/lang_train exp/uit-sme-segmented/mono1a_ali_uit-sme-segmented exp/uit-sme-segmented/tri1a || exit 1;
+    data/uit-sme-segmented-and-giellagas-train data/lang_train exp/uit-sme-segmented-and-giellagas-train/mono1a_ali_uit-sme-segmented-and-giellagas-train exp/uit-sme-segmented-and-giellagas-train/tri1a || exit 1;
 fi
 
 if [ $stage -le 12 ]; then
   steps/align_si.sh --nj 2 --cmd "$train_cmd" \
-    data/uit-sme-segmented data/lang_train exp/uit-sme-segmented/tri1a exp/uit-sme-segmented/tri1a_ali_uit-sme-segmented || exit 1;
+    data/uit-sme-segmented-and-giellagas-train data/lang_train exp/uit-sme-segmented-and-giellagas-train/tri1a exp/uit-sme-segmented-and-giellagas-train/tri1a_ali_uit-sme-segmented-and-giellagas-train || exit 1;
 
   steps/train_lda_mllt.sh --cmd "$train_cmd" \
     --splice-opts "--left-context=3 --right-context=3" 1200 5000 \
-    data/uit-sme-segmented data/lang_train exp/uit-sme-segmented/tri1a_ali_uit-sme-segmented exp/uit-sme-segmented/tri2a || exit 1;
+    data/uit-sme-segmented-and-giellagas-train data/lang_train exp/uit-sme-segmented-and-giellagas-train/tri1a_ali_uit-sme-segmented-and-giellagas-train exp/uit-sme-segmented-and-giellagas-train/tri2a || exit 1;
 fi
 
 if [ $stage -le 13 ]; then
   steps/align_si.sh  --nj 2 --cmd "$train_cmd" \
-    data/uit-sme-segmented data/lang_train exp/uit-sme-segmented/tri2a/ exp/uit-sme-segmented/tri2a_ali_uit-sme-segmented || exit 1;
+    data/uit-sme-segmented-and-giellagas-train data/lang_train exp/uit-sme-segmented-and-giellagas-train/tri2a/ exp/uit-sme-segmented-and-giellagas-train/tri2a_ali_uit-sme-segmented-and-giellagas-train || exit 1;
 
   steps/train_sat.sh --cmd "$train_cmd" 1200 5000 \
-    data/uit-sme-segmented data/lang_train exp/uit-sme-segmented/tri2a_ali_uit-sme-segmented exp/uit-sme-segmented/tri3a || exit 1;
+    data/uit-sme-segmented-and-giellagas-train data/lang_train exp/uit-sme-segmented-and-giellagas-train/tri2a_ali_uit-sme-segmented-and-giellagas-train exp/uit-sme-segmented-and-giellagas-train/tri3a || exit 1;
 fi
 
 ################################################################################
@@ -153,10 +153,10 @@ fi
 
 
 if [ $stage -le 14 ]; then
-  #steps/align_fmllr.sh --nj 2 --cmd "$train_cmd" \
-  #  data/uit-sme-segmented data/lang_train exp/uit-sme-segmented/tri3a exp/uit-sme-segmented/tri3a_ali_uit-sme-segmented || exit 1;
+  steps/align_fmllr.sh --nj 2 --cmd "$train_cmd" \
+    data/uit-sme-segmented-and-giellagas-train data/lang_train exp/uit-sme-segmented-and-giellagas-train/tri3a exp/uit-sme-segmented-and-giellagas-train/tri3a_ali_uit-sme-segmented-and-giellagas-train || exit 1;
   steps/align_fmllr.sh --nj 2 --cmd "$train_cmd" --retry-beam 100 \
-    data/giellagas-valid/ data/lang_train exp/giellagas/tri3a exp/giellagas/tri3a_ali_giellagas-valid || exit 1;
+    data/giellagas-valid/ data/lang_train exp/uit-sme-segmented-and-giellagas-train/tri3a exp/uit-sme-segmented-and-giellagas-train/tri3a_ali_giellagas-valid || exit 1;
 fi
 
 if [ $stage -le 15 ]; then
@@ -182,7 +182,11 @@ if [ $stage -le 15 ]; then
 fi
 
 if [ $stage -le 16 ]; then
-  local/chain/build_new_tree.sh exp/chain/tree2
+  local/chain/build_new_tree.sh \
+    --traindata data/uit-sme-segmented-and-giellagas-train/ \
+    --trainali exp/uit-sme-segmented-and-giellagas-train/tri3a_ali_uit-sme-segmented-and-giellagas-train \
+    --validali exp/uit-sme-segmented-and-giellagas-train/tri3a_ali_giellagas-valid \
+    exp/chain/tree2
 fi
 
 if [ $stage -le 17 ]; then
@@ -190,7 +194,7 @@ if [ $stage -le 17 ]; then
 fi
 
 if [ $stage -le 18 ]; then
-  local/chain/prepare_graph_clustered.sh
+  local/chain/prepare_graph_clustered.sh --trainset uit-sme-segmented-and-giellagas-train
 fi
 
 if [ $stage -le 19 ]; then
@@ -198,10 +202,10 @@ if [ $stage -le 19 ]; then
 fi
 
 if [ $stage -le 20 ]; then
-  utils/mkgraph.sh data/lang_bpe.1000.varikn/ exp/chain/graph2/ exp/chain/graph2/graph_bpe.1000.varikn
+  utils/mkgraph.sh --self-loop-scale 1.0 data/lang_bpe.1000.varikn/ exp/chain/graph2/ exp/chain/graph2/graph_bpe.1000.varikn
 fi
 
 if [ $stage -le 21 ]; then
-  local/chain/decode.sh 
+  local/chain/decode.sh
 fi
 

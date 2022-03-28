@@ -30,11 +30,6 @@ class LFMMIAM(sb.Brain):
         if stage == sb.Stage.TRAIN:
             if hasattr(self.modules, "env_corrupt"):
                 wavs = self.modules.env_corrupt(wavs, wav_lens)
-                #wavs = torch.cat([wavs, wavs_noise], dim=0)
-                #wav_lens = torch.cat([wav_lens, wav_lens])
-
-            #if hasattr(self.hparams, "augmentation"):
-            #    wavs = self.hparams.augmentation(wavs, wav_lens)
 
         feats = self.modules.wav2vec2(wavs)
         if self.hparams.subsampling == 2:
@@ -45,24 +40,20 @@ class LFMMIAM(sb.Brain):
             feats = feats[:,::2,:]
         encoded = self.modules.enc(feats)
         lfmmi_out = self.modules.lfmmi_lin_out(encoded)
-        xent_out = self.modules.xent_lin_out(encoded)
-        xent_predictions = self.hparams.log_softmax(xent_out)
-        return lfmmi_out, xent_predictions
+        return lfmmi_out
 
     def compute_objectives(self, predictions, batch, stage):
         graphs = batch.graph
-        alis, ali_lens = batch.ali
-        wav_lens = batch.wav.lengths
+        wavs, wav_lens = batch.wav
         if stage == sb.Stage.TRAIN and hasattr(self.modules, "env_corrupt"):
             pass
             #graphs = graphs + graphs
             #alis = torch.cat([alis, alis], dim=0)
             #ali_lens = torch.cat([ali_lens, ali_lens])
             #wav_lens = torch.cat([wav_lens, wav_lens])
-        lfmmi_out, xent_predictions = predictions
+        lfmmi_out = predictions
         num_transitions = list(map(self.hparams.transgetter, batch.graph))
         output_lengths = (lfmmi_out.shape[1] * wav_lens).int().cpu()
-        pass
         max_num_states = max(map(self.hparams.stategetter, batch.graph))
         numerator_graphs = ChainGraphBatch(
                 graphs,
@@ -70,21 +61,11 @@ class LFMMIAM(sb.Brain):
                 max_num_states=max_num_states
         )
         lfmmi_loss = self.hparams.chain_loss(lfmmi_out, output_lengths, numerator_graphs)
-        xent_loss = sb.nnet.losses.nll_loss(
-            log_probabilities=xent_predictions,
-            length=ali_lens,
-            targets=alis,
-            label_smoothing=self.hparams.label_smoothing,
-        )
-        loss = (1. - self.hparams.xent_scale ) * lfmmi_loss + self.hparams.xent_scale * xent_loss
-        if stage != sb.Stage.TRAIN:
-            min_length = min(xent_predictions.shape[1], alis.shape[1])
-            self.accuracy_metric.append(xent_predictions[:,:min_length,:], alis[:,:min_length], length=ali_lens)
-        return loss
+        return lfmmi_loss
 
     def on_stage_start(self, stage, epoch):
         if stage != sb.Stage.TRAIN:
-            self.accuracy_metric = self.hparams.accuracy_computer()
+            pass
 
     def on_stage_end(self, stage, stage_loss, epoch):
         stage_stats = {"loss": stage_loss}
@@ -93,7 +74,7 @@ class LFMMIAM(sb.Brain):
             self.train_stats = stage_stats
         # Summarize the statistics from the stage for record-keeping.
         else:
-            stage_stats["accuracy"] = self.accuracy_metric.summarize()
+            pass
 
         # Perform end-of-iteration things, like annealing, logging, etc.
         if stage == sb.Stage.VALID:
@@ -122,7 +103,7 @@ class LFMMIAM(sb.Brain):
 
             # Save the current checkpoint and delete previous checkpoints.
             self.checkpointer.save_and_keep_only(
-                meta={"loss": stage_stats["loss"], "xent-accuracy": stage_stats["accuracy"]}, 
+                meta={"loss": stage_stats["loss"],}, 
                 min_keys=["loss"],
                 num_to_keep=getattr(self.hparams, "ckpts_to_keep", 1)
             )
@@ -242,7 +223,7 @@ def dataio_prepare(hparams, numfsts):
     traindata = (
             wds.WebDataset(hparams["trainshards"])
             .decode()
-            .rename(wav="audio.pth", ali="ali.pth")
+            .rename(wav="audio.pth")
             .map(load_train_fst, handler=wds.warn_and_continue)
             .repeat()
             .then(
@@ -253,7 +234,7 @@ def dataio_prepare(hparams, numfsts):
     validdata = (
             wds.WebDataset(hparams["validshards"])
             .decode()
-            .rename(wav="audio.pth", ali="ali.pth")
+            .rename(wav="audio.pth")
             .map(load_valid_fst, handler=wds.warn_and_continue)
             .then(
                 sb.dataio.iterators.dynamic_bucketed_batch,

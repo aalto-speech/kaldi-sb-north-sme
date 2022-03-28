@@ -2,26 +2,26 @@
 seed: 2602
 __set_seed: !apply:torch.manual_seed [!ref <seed>]
 
-trainshards: ./shards/uit-sme-segmented/shard-000{000..001}.tar
-validshards: ./shards/giellagas-valid/shard-000{000..001}.tar
-# data_folder_rirs: ./augmentation_data # noise/ris dataset will automatically be downloaded here
-num_units: 672
-output_folder: !ref exp/chain/sb-mtl-am/wav2vec2-sub2-A/<seed>-<num_units>units
+trainshards: ./shards/non-indep/train/shard-000000.tar
+validshards: ./shards/non-indep/valid/shard-000000.tar
+output_folder: exp/non-indep/chain_e2e/sb-mtl-am/wav2vec2-sub2-F/
+data_folder_rirs: ./tmp/sb-rir-data
+num_units: 656
 save_folder: !ref <output_folder>/save
 train_log: !ref <output_folder>/train_log.txt
 w2v2_savepath: ./w2v2_checkpoints
 
 # URL for the biggest Fairseq english wav2vec2 model.
-wav2vec2_hub: facebook/wav2vec2-large-xlsr-53
+wav2vec2_hub: facebook/wav2vec2-large-uralic-voxpopuli-v2 
 
 # FST stuff:
-numfstdir: exp/chain/graph2/uit-sme-segmented/
-numfsttmpdir: /tmp/sb-uit-sme-segmented-fsts-sub2
-valid_numfstdir: exp/chain/graph2/giellagas-valid/
-valid_numfsttmpdir: /tmp/sb-giellagas-valid-fsts-sub2
+numfstdir: exp/non-indep/chain_e2e/graph2/train/
+numfsttmpdir: /tmp/sb-non-indep-e2e/numfsts-train-sub2
+valid_numfstdir: exp/non-indep/chain_e2e/graph2/valid
+valid_numfsttmpdir: /tmp/sb-non-indep-e2e/numfsts-valid-sub2
 denominator_graph: !new:pychain.graph.ChainGraph
     fst: !apply:simplefst.StdVectorFst.read
-        - exp/chain/graph2/den.fst
+        - exp/non-indep/chain_e2e/graph2/den.fst
     initial_mode: leaky
     final_mode: ones 
 
@@ -42,7 +42,7 @@ lin_out_name: "lfmmi_lin_out"
 # Test files:
 prior_file: !ref <output_folder>/prior.pth
 #test_max_key: "unixtime"
-test_min_key: "loss"
+#test_min_key: "loss"
 #test_wavscp: data/giellagas-test/wav.scp  # TODO: segments
 testdir: data/giellagas-valid/ 
 test_probs_out: !ref <output_folder>/test_probs.ark
@@ -52,7 +52,7 @@ train_logger: !new:speechbrain.utils.train_logger.FileTrainLogger
     save_file: !ref <train_log>
 
 # Training parameters
-number_of_epochs: 100
+number_of_epochs: 50
 nonfinite_patience: 50
 
 # Feature parameters
@@ -112,10 +112,19 @@ dropout: 0.15
 #    norm_type: global
 #
 
+env_corrupt: !new:speechbrain.lobes.augment.EnvCorrupt
+   openrir_folder: !ref <data_folder_rirs>
+   babble_prob: 0.25
+   reverb_prob: 0.25
+   noise_prob: 0.5
+   noise_snr_low: 0
+   noise_snr_high: 15
+
 wav2vec2: !new:speechbrain.lobes.models.huggingface_wav2vec.HuggingFaceWav2Vec2
     source: !ref <wav2vec2_hub>
     output_norm: True
     freeze: !ref <freeze_wav2vec>
+    freeze_feature_extractor: True
     save_path: !ref <w2v2_savepath>
 
 enc: !new:speechbrain.nnet.containers.Sequential
@@ -153,6 +162,7 @@ modules:
     enc: !ref <enc>
     xent_lin_out: !ref <xent_lin_out>
     lfmmi_lin_out: !ref <lfmmi_lin_out>
+    env_corrupt: !ref <env_corrupt>
     #normalize: !ref <normalize>
 
 model: !new:torch.nn.ModuleList

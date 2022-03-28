@@ -33,8 +33,8 @@ class LFMMIAM(sb.Brain):
                 #wavs = torch.cat([wavs, wavs_noise], dim=0)
                 #wav_lens = torch.cat([wav_lens, wav_lens])
 
-            #if hasattr(self.hparams, "augmentation"):
-            #    wavs = self.hparams.augmentation(wavs, wav_lens)
+            if hasattr(self.hparams, "augmentation"):
+                wavs = self.hparams.augmentation(wavs, wav_lens)
 
         feats = self.modules.wav2vec2(wavs)
         if self.hparams.subsampling == 2:
@@ -45,24 +45,19 @@ class LFMMIAM(sb.Brain):
             feats = feats[:,::2,:]
         encoded = self.modules.enc(feats)
         lfmmi_out = self.modules.lfmmi_lin_out(encoded)
-        xent_out = self.modules.xent_lin_out(encoded)
-        xent_predictions = self.hparams.log_softmax(xent_out)
-        return lfmmi_out, xent_predictions
+        return lfmmi_out
 
     def compute_objectives(self, predictions, batch, stage):
         graphs = batch.graph
-        alis, ali_lens = batch.ali
-        wav_lens = batch.wav.lengths
         if stage == sb.Stage.TRAIN and hasattr(self.modules, "env_corrupt"):
             pass
             #graphs = graphs + graphs
             #alis = torch.cat([alis, alis], dim=0)
             #ali_lens = torch.cat([ali_lens, ali_lens])
             #wav_lens = torch.cat([wav_lens, wav_lens])
-        lfmmi_out, xent_predictions = predictions
+        lfmmi_out = predictions
         num_transitions = list(map(self.hparams.transgetter, batch.graph))
         output_lengths = (lfmmi_out.shape[1] * wav_lens).int().cpu()
-        pass
         max_num_states = max(map(self.hparams.stategetter, batch.graph))
         numerator_graphs = ChainGraphBatch(
                 graphs,

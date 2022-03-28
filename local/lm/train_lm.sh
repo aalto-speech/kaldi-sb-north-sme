@@ -1,5 +1,4 @@
 #!/bin/bash
-set -eu
 . cmd.sh
 
 stage=1
@@ -9,11 +8,15 @@ varikn_cmd="$train_cmd"
 varikn_extra="--clear_history --3nzer --arpa"
 skip_lang=false
 lmdatadir="data/lm"
+expdir="exp/lm/"
+dict_dir="data/local/dict_lm_bpe.$BPE_units"
 
 echo $0 $@
 
 . path.sh
 . parse_options.sh
+
+set -eu
 
 
 if [ "$#" -ne 1 ]; then
@@ -24,7 +27,7 @@ fi
 
 outdir="$1"
 
-lmdir="exp/lm/varikn.bpe${BPE_units}.d${varikn_scale}"
+lmdir="$expdir/varikn.bpe${BPE_units}.d${varikn_scale}"
 
 if [ "$stage" -le 0 ]; then
   local/lm/prep-lm-data.sh
@@ -46,10 +49,10 @@ if [ "$stage" -le 1 ]; then
 
   $train_cmd "$lmdatadir"/log/spm_encode_"$BPE_units".log \
     spm_encode --model="$lmdir"/bpe."$BPE_units".model \
-    --output_format=piece \< "$lmdatadir"/train.boundaries \> "$lmdatadir"/train.bpe.$BPE_units
+    --output_format=piece \< "$lmdatadir"/train.plain \> "$lmdatadir"/train.bpe.$BPE_units
   $train_cmd "$lmdatadir"/log/spm_encode_"$BPE_units"_valid.log \
     spm_encode --model="$lmdir"/bpe."$BPE_units".model \
-    --output_format=piece \< "$lmdatadir"/valid.boundaries \> "$lmdatadir"/valid.bpe.$BPE_units
+    --output_format=piece \< "$lmdatadir"/valid.plain \> "$lmdatadir"/valid.bpe.$BPE_units
 fi
 
 if [ "$stage" -le 2 ]; then
@@ -74,7 +77,6 @@ if [ "$skip_lang" = true ]; then
 	exit 0
 fi
 
-dict_dir="data/local/dict_lm_bpe.$BPE_units"
 if [ "$stage" -le 4 ]; then
 	echo "Make SentencePiece LM."
 	local/lm/make_spm_lang.sh "$lmdir"/bpe.${BPE_units}.vocab.plain $dict_dir $outdir

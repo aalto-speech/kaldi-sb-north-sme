@@ -1,0 +1,1 @@
+/scratch/elec/puhe/p/uit-sme-models/s5/steps/score_kaldi.sh

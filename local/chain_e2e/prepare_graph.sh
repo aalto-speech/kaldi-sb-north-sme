@@ -4,8 +4,6 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
-# NOTE: This doesn't actually do any of the clustering steps - this is useable in E2E as well
-
 set -e -o pipefail
 
 dataroot=data
