@@ -25,3 +25,8 @@ fi
 if [ $stage -le 4 ]; then
   local/attention/test.sh --hyperparams hyperparams/attention/w2v2-giellagas-only.yaml
 fi
+
+if [ $stage -le 5 ]; then
+  local/attention/prep-shards.sh --datadir data/uit-sme-segmented/ --sharddir shards/uit-sme-segmented/attention-test
+  local/attention/test.sh --hyperparams "hyperparams/attention/w2v2-giellagas-only.yaml --testshards shards/uit-sme-segmented/attention-test/shard-000000.tar"
+fi

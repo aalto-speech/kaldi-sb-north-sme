@@ -98,3 +98,36 @@ if [ $stage -le 9 ]; then
     --stage 2 --posteriors_from exp/giellagas-only/chain_e2e/sb-mtl-am/wav2vec2-sub2-F/decode-test \
     --acwt 1.0 --post-decode-acwt 10.0
 fi
+
+if [ $stage -le 10 ]; then
+  local/chain/decode.sh \
+    --hparams "hyperparams/mtl/w2v2-giellagas-only-e2e.yaml" \
+    --datadir data/giellagas-only/valid \
+    --tree exp/giellagas-only/chain_e2e/tree2 \
+    --graphdir exp/giellagas-only/chain_e2e/graph2/graph_transcript_bpe400/ \
+    --decodedir exp/giellagas-only/chain_e2e/sb-mtl-am/wav2vec2-sub2-F/decode-valid-transcript \
+    --py_script "local/chain/sb-test-lfmmi-w2v2.py" \
+    --acwt 1.0 --post-decode-acwt 10.0
+fi
+
+if [ $stage -le 11 ]; then
+  local/chain/decode.sh \
+    --hparams "hyperparams/mtl/w2v2-giellagas-only-e2e.yaml" \
+    --datadir data/giellagas-only/test \
+    --tree exp/giellagas-only/chain_e2e/tree2 \
+    --graphdir exp/giellagas-only/chain_e2e/graph2/graph_transcript_bpe400/ \
+    --decodedir exp/giellagas-only/chain_e2e/sb-mtl-am/wav2vec2-sub2-F/decode-test-transcript \
+    --py_script "local/chain/sb-test-lfmmi-w2v2.py" \
+    --acwt 1.0 --post-decode-acwt 10.0
+fi
+
+if [ $stage -le 12 ]; then
+  local/chain/decode.sh \
+    --hparams "hyperparams/mtl/w2v2-giellagas-only-e2e.yaml" \
+    --datadir data/uit-sme-segmented/ \
+    --tree exp/giellagas-only/chain_e2e/tree2 \
+    --graphdir exp/giellagas-only/chain_e2e/graph2/graph_transcript_bpe400/ \
+    --decodedir exp/giellagas-only/chain_e2e/sb-mtl-am/wav2vec2-sub2-F/decode-uit-sme-transcript \
+    --py_script "local/chain/sb-test-lfmmi-w2v2.py" \
+    --acwt 1.0 --post-decode-acwt 10.0
+fi

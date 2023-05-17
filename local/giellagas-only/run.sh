@@ -144,3 +144,13 @@ if [ $stage -le 24 ]; then
     --decodedir exp/giellagas-only/chain/sb-mtl-am/wav2vec2-sub2-F/decode-test-transcript \
     --acwt 1.0 --post-decode-acwt 10.0 
 fi
+
+if [ $stage -le 25 ]; then
+  local/chain/decode.sh \
+    --hparams "hyperparams/mtl/w2v2-giellagas-only.yaml" \
+    --datadir data/uit-sme-segmented/ \
+    --tree exp/giellagas-only/chain/tree2 \
+    --graphdir exp/giellagas-only/chain/graph2/graph_transcript_bpe400 \
+    --decodedir exp/giellagas-only/chain/sb-mtl-am/wav2vec2-sub2-F/decode-uit-sme-transcript \
+    --acwt 1.0 --post-decode-acwt 10.0 
+fi
