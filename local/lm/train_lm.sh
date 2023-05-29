@@ -9,7 +9,6 @@ varikn_extra="--clear_history --3nzer --arpa"
 skip_lang=false
 lmdatadir="data/lm"
 expdir="exp/lm/"
-dict_dir="data/local/dict_lm_bpe.$BPE_units"
 
 echo $0 $@
 
@@ -17,6 +16,7 @@ echo $0 $@
 . parse_options.sh
 
 set -eu
+
 
 
 if [ "$#" -ne 1 ]; then
@@ -28,6 +28,7 @@ fi
 outdir="$1"
 
 lmdir="$expdir/varikn.bpe${BPE_units}.d${varikn_scale}"
+dict_dir="data/local/dict_lm_bpe.$BPE_units"
 
 if [ "$stage" -le 0 ]; then
   local/lm/prep-lm-data.sh

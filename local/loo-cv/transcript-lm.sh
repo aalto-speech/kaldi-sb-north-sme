@@ -16,5 +16,5 @@ sed -e "s/^/<s> /g" -e "s/$/ <s>/g" \
   <data/loo-cv/$index/lm/valid.plain \
   >data/loo-cv/$index/lm/valid.boundaries
 
-local/lm/train_lm.sh --lmdatadir data/loo-cv/$index/lm --dict_dir data/loo-cv/$index/local/dict_bpe400 --expdir exp/loo-cv/$index/lm --BPE_units 400 data/loo-cv/$index/lang_transcript_bpe400
+local/lm/train_lm.sh --lmdatadir data/loo-cv/$index/lm --dict_dir data/loo-cv/$index/local/dict_bpe400 --expdir exp/loo-cv/$index/lm --BPE_units 100 data/loo-cv/$index/lang_transcript_bpe400
 

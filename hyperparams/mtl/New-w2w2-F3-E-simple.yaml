@@ -1,0 +1,205 @@
+# ############################################################################
+# Model: E2E ASR with attention-based ASR
+# Training data: FINNISH PARLIAMENT (First release) 30min/spk subset
+# Encoder: CRDNN
+# Decoder: GRU + beamsearch + RNNLM
+# Authors: Aku Rouhe 2021 
+# ############################################################################
+
+# Seed needs to be set at top of yaml, before objects with parameters are instantiated
+seed: 2602
+__set_seed: !apply:torch.manual_seed [!ref <seed>]
+
+trainshards: ./shards/uit-sme-segmented-and-giellagas-train-sub2-simple/shard-000000.tar
+validshards: ./shards/giellagas-valid/shard-000000.tar
+# data_folder_rirs: ./augmentation_data # noise/ris dataset will automatically be downloaded here
+data_folder_rirs: ./tmp/sb-rir-data
+num_units: !PLACEHOLDER
+output_folder: !ref exp/chain/New-2023/Initial-<seed>-<num_units>units-E-simple
+save_folder: !ref <output_folder>/save
+train_log: !ref <output_folder>/train_log.txt
+
+# wav2vec 2.0 
+w2v2_savepath: ./w2v2_checkpoints
+wav2vec2_hub: facebook/wav2vec2-large-uralic-voxpopuli-v2 
+
+# FST stuff:
+expname: "sme-indep-sub2"
+numfstdir: exp/chain/graph2-simple/uit-sme-segmented-and-giellagas-train/
+numfsttmpdir: /tmp/sb-uit-sme-segmented-and-giellagas-train-fsts-sub2-simple
+valid_numfstdir: exp/chain/graph2-simple/giellagas-valid/
+valid_numfsttmpdir: /tmp/sb-giellagas-valid-new-fsts-sub2-simple
+denominator_graph: !new:pychain.graph.ChainGraph
+    fst: !apply:simplefst.StdVectorFst.read
+        - exp/chain/graph2-simple/den.fst
+    initial_mode: leaky
+    final_mode: ones 
+
+chain_loss: !new:pychain.loss.ChainLoss
+    - !ref <denominator_graph>
+    - 0.0001
+train_fsts_in_mem: True
+# FST Helpers:
+transgetter: !new:operator.attrgetter
+    - "num_transitions"
+stategetter: !new:operator.attrgetter
+    - "num_states"
+
+# Multi-task weighting:
+xent_scale: 0.1
+lin_out_name: "lfmmi_lin_out"
+outnorm_scale: 0.0005
+
+# Test files:
+prior_file: !ref <output_folder>/prior.pth
+#test_max_key: "unixtime"
+test_min_key: "loss"
+testdir: kaldi-s5/data/parl-dev-all-fixed_hires/
+test_probs_out: !ref <output_folder>/test_probs.ark
+subtract_prior: True
+normalize_out: False
+
+# The train logger writes training statistics to a file, as well as stdout.
+train_logger: !new:speechbrain.utils.train_logger.FileTrainLogger
+    save_file: !ref <train_log>
+
+# Training parameters
+number_of_epochs: 10
+nonfinite_patience: 100
+
+# Feature parameters
+sample_rate: 16000
+n_fft: 400
+n_mels: 80
+subsampling: 2
+
+grad_accumulation_factor: 1
+
+dynamic_batch_kwargs:
+    max_sample_len: !ref <sample_rate> * 60
+    sampler_kwargs:
+        target_batch_numel: !ref <sample_rate> * 80 / <grad_accumulation_factor> # 16000*120=2minutes
+        max_batch_numel: !ref <sample_rate> * 124 / <grad_accumulation_factor> 
+    len_key: 'wav'
+valid_dynamic_batch_kwargs:
+    len_key: "wav"
+    sampler_kwargs:
+        target_batch_numel: !ref <sample_rate> * 200
+        max_batch_numel: !ref <sample_rate> * 220
+    max_sample_len: !ref <sample_rate> * 25
+
+train_loader_kwargs:
+    num_workers: 0
+    looped_nominal_epoch: !ref 500 * <grad_accumulation_factor> 
+    batch_size: null
+prior_loader_kwargs:
+    num_workers: 0
+    looped_nominal_epoch: 2000
+    batch_size: null
+ckpt_interval_minutes: 30 # save checkpoint every N min
+label_smoothing: 0.1
+
+lr: 0.0001
+lr_wav2vec: 0.000001
+
+
+# Model parameters
+activation: !name:torch.nn.LeakyReLU
+wav2vec_output_dim: 1024
+dnn_neurons: 1024
+freeze_wav2vec: True
+dropout: 0.15
+choose_layer: 24
+
+# The first object passed to the Brain class is this "Epoch Counter"
+# which is saved by the Checkpointer so that training can be resumed
+# if it gets interrupted at any point.
+epoch_counter: !new:speechbrain.utils.epoch_loop.EpochCounter
+    limit: !ref <number_of_epochs>
+
+env_corrupt: !new:speechbrain.lobes.augment.EnvCorrupt
+    openrir_folder: !ref <data_folder_rirs>
+    babble_prob: 0.25
+    reverb_prob: 0.25
+    noise_prob: 0.5
+    noise_snr_low: 0
+    noise_snr_high: 15
+
+spec_augment: !new:speechbrain.lobes.augment.TimeDomainSpecAugment
+    perturb_prob: 0
+    drop_freq_prob: 0.5
+    drop_chunk_prob: 0.5
+
+
+wav2vec2: !new:speechbrain.lobes.models.huggingface_wav2vec.HuggingFaceWav2Vec2
+    source: !ref <wav2vec2_hub>
+    output_norm: True
+    freeze: !ref <freeze_wav2vec>
+    freeze_feature_extractor: True
+    save_path: !ref <w2v2_savepath>
+    output_all_hiddens: True  # Needs different processing!
+
+enc: !new:speechbrain.nnet.containers.Sequential
+    input_shape: [null, null, !ref <wav2vec_output_dim>]
+
+# Linear transformations on the top of the decoder.
+xent_lin_out: !new:speechbrain.nnet.linear.Linear
+    input_size: !ref <dnn_neurons>
+    n_neurons: !ref <num_units>
+lfmmi_lin_out: !new:speechbrain.nnet.linear.Linear
+    input_size: !ref <dnn_neurons>
+    n_neurons: !ref <num_units>
+
+# Final softmax (for log posteriors computation).
+log_softmax: !new:speechbrain.nnet.activations.Softmax
+    apply_log: True
+
+
+# Objects in "modules" dict will have their parameters moved to the correct
+# device, as well as having train()/eval() called on them by the Brain class
+modules:
+    wav2vec2: !ref <wav2vec2>
+    encoder: !ref <enc>
+    xent_lin_out: !ref <xent_lin_out>
+    lfmmi_lin_out: !ref <lfmmi_lin_out>
+    env_corrupt: !ref <env_corrupt>
+    spec_augment: !ref <spec_augment>
+
+# Gathering all the submodels in a single model object.
+model: !new:torch.nn.ModuleList
+    - - !ref <xent_lin_out>
+      - !ref <lfmmi_lin_out>
+      - !ref <enc>
+
+lr_annealing_model: !new:speechbrain.nnet.schedulers.NewBobScheduler
+    initial_value: !ref <lr>
+    improvement_threshold: 0.0025
+    annealing_factor: 0.8
+    patient: 0
+
+lr_annealing_wav2vec: !new:speechbrain.nnet.schedulers.NewBobScheduler
+    initial_value: !ref <lr_wav2vec>
+    improvement_threshold: 0.0025
+    annealing_factor: 0.9
+    patient: 0
+
+model_opt_class: !name:torch.optim.Adam
+      lr: !ref <lr> 
+
+wav2vec_opt_class: !name:torch.optim.Adam
+    lr: !ref <lr_wav2vec>
+
+# Functions that compute the statistics to track during the validation step.
+accuracy_computer: !name:speechbrain.utils.Accuracy.AccuracyStats
+
+# This object is used for saving the state of training both so that it
+# can be resumed if it gets interrupted, and also so that the best checkpoint
+# can be later loaded for evaluation or inference.
+checkpointer: !new:speechbrain.utils.checkpoints.Checkpointer
+    checkpoints_dir: !ref <save_folder>
+    recoverables:
+        wav2vec2: !ref <wav2vec2>
+        model: !ref <model>
+        counter: !ref <epoch_counter>
+        scheduler_model: !ref <lr_annealing_model>
+        scheduler_wav2vec: !ref <lr_annealing_wav2vec>

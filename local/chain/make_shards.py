@@ -32,6 +32,10 @@ def read_rxwav(data):
     if data.endswith("|"):
         with subprocess.Popen(data[:-1], shell=True, stdout=subprocess.PIPE) as proc:
             signal, samplerate = torchaudio.load(proc.stdout)
+    elif ".ark:" in data:
+        f = kaldi_io.open_or_fd(data)
+        signal, samplerate = torchaudio.load(f)
+        f.close()
     else:
         signal, samplerate = torchaudio.load(data)
     return signal.squeeze(0), samplerate
